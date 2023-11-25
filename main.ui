@@ -30,7 +30,8 @@
     <string notr="true">background-color: #FFFFFF;
 color: #000000; 
 border-radius: 10px;
-padding :5px</string>
+padding :3px;
+font: 11pt;</string>
    </property>
   </widget>
   <widget class="QListWidget" name="listWidget">

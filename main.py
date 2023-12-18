@@ -1,13 +1,13 @@
 import sqlite3
 from PyQt5.QtWidgets import QWidget, QApplication, QListWidgetItem, QMessageBox
 from PyQt5.uic import loadUi
-from PyQt5  import QtCore
+from PyQt5 import QtCore, QtGui 
 import sys
 
 class Window(QWidget):
     def __init__(self):
         super(Window, self).__init__()
-        loadUi("main.ui",self)
+        loadUi("main.ui", self)
         self.calendarWidget.selectionChanged.connect(self.calendarDateChanged)
         self.calendarDateChanged()
         self.saveButton.clicked.connect(self.saveChanges)
@@ -16,7 +16,7 @@ class Window(QWidget):
     def calendarDateChanged(self):
         print("The Calendar Date was Changed")
         dateSelected = self.calendarWidget.selectedDate().toPyDate()
-        print("Date Selected: ",dateSelected)
+        print("Date Selected: ", dateSelected)
         self.updateTaskList(dateSelected)
 
     def updateTaskList(self, date):
@@ -24,18 +24,40 @@ class Window(QWidget):
 
         db = sqlite3.connect("data.db")
         cursor = db.cursor()
-        query = "SELECT task, completed FROM tasks WHERE date = ?"
+        query = "SELECT task, completed, priority FROM tasks WHERE date = ? ORDER BY priority ASC"
         row = (date,)
         results = cursor.execute(query, row).fetchall()
         for result in results:
-            item = QListWidgetItem(str(result[0]))
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.Unchecked)
-            if result[1] == "YES":
-                item.setCheckState(QtCore.Qt.Checked)
-            elif result[1] == "NO":
-                item.setCheckState(QtCore.Qt.Unchecked)
+            item = self.createTaskItem(result)
             self.listWidget.addItem(item)
+
+    def createTaskItem(self, result):
+        task, completed, priority = result
+        item = QListWidgetItem(str(task))
+        item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+        item.setCheckState(QtCore.Qt.Checked if completed == "YES" else QtCore.Qt.Unchecked)
+
+        # Set background color based on priority using a gradient
+        gradient = self.getPriorityGradient(priority)
+        brush = QtGui.QBrush(gradient)
+        item.setBackground(brush)
+
+        return item
+
+    def getPriorityGradient(self, priority):
+        gradient = QtGui.QLinearGradient(0, 0, 100, 0)  # Define a linear gradient from left to right
+
+        if priority == 1:
+            gradient.setColorAt(0, QtGui.QColor(255, 0, 0))  # Red for high priority
+            gradient.setColorAt(1, QtGui.QColor(255, 150, 150))  # Lighter red
+        elif priority == 2:
+            gradient.setColorAt(0, QtGui.QColor(255, 255, 0))  # Yellow for medium priority
+            gradient.setColorAt(1, QtGui.QColor(255, 255, 150))  # Lighter yellow
+        else:
+            gradient.setColorAt(0, QtGui.QColor(255, 255, 255))  # Default color for low priority
+            gradient.setColorAt(1, QtGui.QColor(240, 240, 240))  # Lighter gray
+
+        return gradient
 
     def saveChanges(self):
         db = sqlite3.connect("data.db")
@@ -64,14 +86,17 @@ class Window(QWidget):
 
         newTask = str(self.taskLineEdit.text())
         date = self.calendarWidget.selectedDate().toPyDate()
+        priority = self.prioritySpinBox.value()  # Assuming you have a QSpinBox for priority.
+        reminder_time = self.timeEdit.time().toString("HH:mm:ss")
 
-        query = "INSERT INTO tasks(task, completed, date) VALUES (?, ?, ?)"
-        row = (newTask, "NO", date,)
+        query = "INSERT INTO tasks(task, completed, date, priority,reminder_time) VALUES (?, ?, ?, ?, ?)"
+        row = (newTask, "NO", date, priority, reminder_time)
 
         cursor.execute(query, row)
         db.commit()
         self.updateTaskList(date)
         self.taskLineEdit.clear()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

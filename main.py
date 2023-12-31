@@ -1,9 +1,55 @@
 import sqlite3
 from PyQt5.QtWidgets import QWidget, QApplication, QListWidgetItem, QMessageBox
 from PyQt5.uic import loadUi
-from PyQt5 import QtCore, QtGui
-from plyer import notification 
+from PyQt5 import QtCore, QtGui 
+from datetime import datetime, timedelta
+from win10toast import ToastNotifier
 import sys
+
+class NotificationThread(QtCore.QThread):
+    notification_signal = QtCore.pyqtSignal(str, int, str)
+
+    def __init__(self, task, priority, reminder_time):
+        super(NotificationThread, self).__init__()
+        self.task = task
+        self.priority = priority
+        self.reminder_time = reminder_time
+        self._is_running = True
+
+    def run(self):
+        self.schedule_notification()
+
+    def stop(self):
+        self._is_running = False
+
+    def schedule_notification(self):
+        reminder_datetime = datetime.combine(datetime.today(), datetime.strptime(self.reminder_time, "%H:%M:%S").time())
+        current_datetime = datetime.now()
+
+        if self.priority == 1:
+            time_difference = reminder_datetime - current_datetime - timedelta(seconds=20)
+        elif self.priority == 2:
+            time_difference = reminder_datetime - current_datetime - timedelta(seconds=10)
+        else:
+            time_difference = reminder_datetime - current_datetime - timedelta(seconds=5)
+
+        seconds_until_notification = max(0, int(time_difference.total_seconds()))
+
+        while self._is_running and seconds_until_notification > 0:
+            self.sleep(1)
+            seconds_until_notification -= 1
+
+        if self._is_running:
+            # Schedule the notification using win10toast
+            toaster = ToastNotifier()
+            toaster.show_toast(
+                f"Reminder for Task: {self.task}",
+                f"Priority: {self.priority}\nTime: {self.reminder_time}",
+                duration=5,
+            )
+
+    def __del__(self):
+        self.wait()
 
 class Window(QWidget):
     def __init__(self):
@@ -13,11 +59,10 @@ class Window(QWidget):
         self.calendarDateChanged()
         self.saveButton.clicked.connect(self.saveChanges)
         self.addButton.clicked.connect(self.addNewTask)
+        self.notification_threads = []
 
     def calendarDateChanged(self):
-        print("The Calendar Date was Changed")
         dateSelected = self.calendarWidget.selectedDate().toPyDate()
-        print("Date Selected: ", dateSelected)
         self.updateTaskList(dateSelected)
 
     def updateTaskList(self, date):
@@ -25,15 +70,18 @@ class Window(QWidget):
 
         db = sqlite3.connect("data.db")
         cursor = db.cursor()
-        query = "SELECT task, completed, priority FROM tasks WHERE date = ? ORDER BY priority ASC"
+        query = "SELECT task, completed, priority, reminder_time FROM tasks WHERE date = ? ORDER BY priority ASC"
         row = (date,)
         results = cursor.execute(query, row).fetchall()
         for result in results:
             item = self.createTaskItem(result)
             self.listWidget.addItem(item)
 
+            # Schedule reminders for tasks with specific priorities
+            self.schedule_notification(result)
+
     def createTaskItem(self, result):
-        task, completed, priority = result
+        task, completed, priority, reminder_time = result
         item = QListWidgetItem(str(task))
         item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
         item.setCheckState(QtCore.Qt.Checked if completed == "YES" else QtCore.Qt.Unchecked)
@@ -80,27 +128,17 @@ class Window(QWidget):
         messageBox.setText("Changes Saved.")
         messageBox.setStandardButtons(QMessageBox.Ok)
         messageBox.exec()
-        completed_tasks = [item.text() for item in self.listWidget.findItems("", QtCore.Qt.MatchContains)]
-        if completed_tasks:
-            notification_title = "Completed Tasks"
-            notification_text = f"{len(completed_tasks)} tasks completed!"
-            notification.notify(
-                title=notification_title,
-                message=notification_text,
-                app_icon=None,  # e.g., 'path/to/icon.png'
-                timeout=10,  # seconds
-            )
-    
+
     def addNewTask(self):
         db = sqlite3.connect("data.db")
         cursor = db.cursor()
 
         newTask = str(self.taskLineEdit.text())
         date = self.calendarWidget.selectedDate().toPyDate()
-        priority = self.prioritySpinBox.value()  # Assuming you have a QSpinBox for priority.
+        priority = self.prioritySpinBox.value()
         reminder_time = self.timeEdit.time().toString("HH:mm:ss")
 
-        query = "INSERT INTO tasks(task, completed, date, priority,reminder_time) VALUES (?, ?, ?, ?, ?)"
+        query = "INSERT INTO tasks(task, completed, date, priority, reminder_time) VALUES (?, ?, ?, ?, ?)"
         row = (newTask, "NO", date, priority, reminder_time)
 
         cursor.execute(query, row)
@@ -108,15 +146,26 @@ class Window(QWidget):
         self.updateTaskList(date)
         self.taskLineEdit.clear()
 
-        notification_title = "New Task Added"
-        notification_text = f"Task '{newTask}' added on {date}"
-        notification.notify(
-            title=notification_title,
-            message=notification_text,
-            app_icon=None,  # e.g., 'path/to/icon.png'
-            timeout=10,  # seconds
-        )
+        # After adding a new task, show a scheduled notification using a separate thread
+        notification_thread = NotificationThread(newTask, priority, reminder_time)
+        self.notification_threads.append(notification_thread)
+        notification_thread.start()
 
+        # Remove completed threads
+        self.notification_threads = [thread for thread in self.notification_threads if thread.isRunning()]
+
+    def schedule_notification(self, result):
+        task, completed, priority, reminder_time = result
+        current_time = datetime.now().strftime("%H:%M:%S")
+        
+        if not completed and current_time < reminder_time:
+            # Check if the reminder time is in the future
+            notification_thread = NotificationThread(task, priority, reminder_time)
+            self.notification_threads.append(notification_thread)
+            notification_thread.start()
+
+            # Remove completed threads
+            self.notification_threads = [thread for thread in self.notification_threads if thread.isRunning()]
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

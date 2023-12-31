@@ -1,7 +1,8 @@
 import sqlite3
 from PyQt5.QtWidgets import QWidget, QApplication, QListWidgetItem, QMessageBox
 from PyQt5.uic import loadUi
-from PyQt5 import QtCore, QtGui 
+from PyQt5 import QtCore, QtGui
+from plyer import notification 
 import sys
 
 class Window(QWidget):
@@ -79,6 +80,16 @@ class Window(QWidget):
         messageBox.setText("Changes Saved.")
         messageBox.setStandardButtons(QMessageBox.Ok)
         messageBox.exec()
+        completed_tasks = [item.text() for item in self.listWidget.findItems("", QtCore.Qt.MatchContains)]
+        if completed_tasks:
+            notification_title = "Completed Tasks"
+            notification_text = f"{len(completed_tasks)} tasks completed!"
+            notification.notify(
+                title=notification_title,
+                message=notification_text,
+                app_icon=None,  # e.g., 'path/to/icon.png'
+                timeout=10,  # seconds
+            )
     
     def addNewTask(self):
         db = sqlite3.connect("data.db")
@@ -96,6 +107,15 @@ class Window(QWidget):
         db.commit()
         self.updateTaskList(date)
         self.taskLineEdit.clear()
+
+        notification_title = "New Task Added"
+        notification_text = f"Task '{newTask}' added on {date}"
+        notification.notify(
+            title=notification_title,
+            message=notification_text,
+            app_icon=None,  # e.g., 'path/to/icon.png'
+            timeout=10,  # seconds
+        )
 
 
 if __name__ == "__main__":

@@ -55,6 +55,8 @@ class Window(QWidget):
     def __init__(self):
         super(Window, self).__init__()
         loadUi("main.ui", self)
+        self.setWindowTitle("Daily Task Scheduler")  # Set your desired app name
+        self.setWindowIcon(QtGui.QIcon('icon.svg'))  # Set the path to your icon file
         self.calendarWidget.selectionChanged.connect(self.calendarDateChanged)
         self.calendarDateChanged()
         self.saveButton.clicked.connect(self.saveChanges)
